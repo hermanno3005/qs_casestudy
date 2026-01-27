@@ -1,1 +1,18 @@
-/target
+# ===== Rust =====
+/target/
+**/*.rs.bk
+
+# Cargo.lock
+# Keep this for binaries, ignore for libraries
+# Cargo.lock
+
+# ===== VS Code =====
+.vscode/
+!.vscode/extensions.json
+
+# ===== macOS =====
+.DS_Store
+
+# ===== Environment / misc =====
+.env
+*.log
