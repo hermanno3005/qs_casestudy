@@ -91,10 +91,10 @@ fn calculate_steering_direction(from: &Interceptor, to: &Target) -> (f64, f64) {
     let lead_dir_y = lead_dy / lead_mag;
 
     // --- Blend lead and LOS
-    let lambda = (distance / 1.5).clamp(0.0, 1.0);
+    let blend_factor = (distance / 1.5).clamp(0.0, 1.0);
 
-    let dir_x = (1.0 - lambda) * los_x + lambda * lead_dir_x + offset_gain * los_x_norm;
-    let dir_y = (1.0 - lambda) * los_y + lambda * lead_dir_y + offset_gain + los_y_norm;
+    let dir_x = (1.0 - blend_factor) * los_x + blend_factor * lead_dir_x + offset_gain * los_x_norm;
+    let dir_y = (1.0 - blend_factor) * los_y + blend_factor * lead_dir_y + offset_gain * los_y_norm;
 
     // Normalize blended vector
     let mag = (dir_x * dir_x + dir_y * dir_y).sqrt();
@@ -104,7 +104,51 @@ fn calculate_steering_direction(from: &Interceptor, to: &Target) -> (f64, f64) {
         (los_x, los_y)
     }
 }
+fn calculate_steering_direction_pn(from: &Interceptor, to: &Target) -> (f64, f64) {
+    // --- LOS direction
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    let distance = (dx * dx + dy * dy).sqrt();
 
+    // relative velocity
+    let vrel_x = to.vx -from.vx;
+    let vrel_y = to.vy -from.vy;
+
+    // LOS rate lambda_dot = (r x v_rel) / |r|^2   (2D cross product z-component)
+    let lambda_dot = (dx * vrel_y - dy * vrel_x) / distance.powi(2);
+
+    // N-Gain (2-5)
+    let n_gain = 2.0;
+
+    // --- FIX: heading fallback if interceptor speed is ~0
+    let speed_i = (from.vx * from.vx + from.vy * from.vy).sqrt();
+    let (hx, hy) = if speed_i > 1e-6 {
+        (from.vx / speed_i, from.vy / speed_i)
+    } else {
+        // start by pointing along LOS
+        (dx / distance, dy / distance)
+    };
+
+    // Commanded turn rate omega = N * lambda_dot
+    let omega = n_gain * lambda_dot;
+
+    // Rotate heading by omega
+    let cos_omega = (omega*1.0).cos();
+    let sin_omega = (omega*1.0).sin();
+
+    let dir_x =  cos_omega * hx - sin_omega * hy;
+    let dir_y =  sin_omega * hx + cos_omega * hy;
+
+    //Magnitude for Normalization
+    let mag = (dir_x.powi(2) + dir_y.powi(2)).sqrt();
+    (dir_x / mag, dir_y / mag)
+
+    // flight path angle
+    //let gamma = arctan2(from.vy, from.vx);
+
+    // LOS angle
+    //let lambda = calculate_angle_between_vectors(from.vx, from.vy, to.vx, to.vy);
+}
 // Calculate angle between two velocity vectors in degrees
 fn calculate_angle_between_vectors(vx1: f64, vy1: f64, vx2: f64, vy2: f64) -> f64 {
     let dot_product = vx1 * vx2 + vy1 * vy2;
@@ -176,7 +220,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         target.vy = rotated_vy;
         
         // Interceptor steers directly towards target
-        let (mut dir_x, mut dir_y) = calculate_steering_direction(&interceptor, &target);
+        let (mut dir_x, mut dir_y) = calculate_steering_direction_pn(&interceptor, &target);
         
         // Normalize direction vector
         let dir_magnitude = (dir_x * dir_x + dir_y * dir_y).sqrt();
