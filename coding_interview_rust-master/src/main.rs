@@ -114,7 +114,7 @@ fn calculate_steering_direction_pn(from: &Interceptor, to: &Target) -> (f64, f64
     let vrel_x = to.vx -from.vx;
     let vrel_y = to.vy -from.vy;
 
-    // LOS rate lambda_dot = (r x v_rel) / |r|^2   (2D cross product z-component)
+    // LOS rate lambda_dot = (distance x v_rel) / |r|^2   (2D cross product z-component)
     let lambda_dot = (dx * vrel_y - dy * vrel_x) / distance.powi(2);
 
     // N-Gain (2-5)
@@ -143,18 +143,13 @@ fn calculate_steering_direction_pn(from: &Interceptor, to: &Target) -> (f64, f64
     let mag = (dir_x.powi(2) + dir_y.powi(2)).sqrt();
     (dir_x / mag, dir_y / mag)
 
-    // flight path angle
-    //let gamma = arctan2(from.vy, from.vx);
-
-    // LOS angle
-    //let lambda = calculate_angle_between_vectors(from.vx, from.vy, to.vx, to.vy);
 }
 // Calculate angle between two velocity vectors in degrees
 fn calculate_angle_between_vectors(vx1: f64, vy1: f64, vx2: f64, vy2: f64) -> f64 {
     let dot_product = vx1 * vx2 + vy1 * vy2;
     let magnitude1 = (vx1 * vx1 + vy1 * vy1).sqrt();
     let magnitude2 = (vx2 * vx2 + vy2 * vy2).sqrt();
-    
+
     if magnitude1 > 0.0 && magnitude2 > 0.0 {
         let cos_angle = dot_product / (magnitude1 * magnitude2);
         let angle_rad = cos_angle.acos();
@@ -177,7 +172,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut collision_angle: Option<f64> = None;
 
     let collision_threshold = 1.0; // Stop at < 1m distance
-    
+
     let target_initial_height = 30.0; // Initial/target height for correction
     let correction_weight = 0.6; // Weight of correction (0.0 = pure random, 1.0 = pure correction)
     let p_gain = 0.2; // P-Regler Verstärkung (Proportional gain)
@@ -186,49 +181,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for _step in 0..1000 {
         // Collision detection before update: check if we're already close
         let distance = interceptor.distance_to(&target);
-        
+
         if distance < collision_threshold {
             collision_point = Some((target.x, target.y));
-            
+
             // Calculate angle between velocity vectors
             let angle = calculate_angle_between_vectors(target.vx, target.vy, interceptor.vx, interceptor.vy);
             collision_angle = Some(angle);
-            
+
             break;
         }
-        
+
         // Add random deviation to target's velocity between -5° and +5°
         let random_angle_deg: f64 = rng.gen_range(-5.0..5.0);
-        
+
         // P-Regler: Correction angle proportional to height error
         let height_error = target.y - target_initial_height;
         let correction_angle_deg = -height_error * p_gain; // Negative because we want to correct upward when below target
-        
+
         // Blend random angle and correction angle based on weight
         let blended_angle_deg = (random_angle_deg * (1.0 - correction_weight)) 
                                 + (correction_angle_deg * correction_weight);
-        
+
         let random_angle_rad = blended_angle_deg.to_radians();
-        
+
         // Rotate the target's velocity vector by the random angle
         let cos_angle = random_angle_rad.cos();
         let sin_angle = random_angle_rad.sin();
         let rotated_vx = target.vx * cos_angle - target.vy * sin_angle;
         let rotated_vy = target.vx * sin_angle + target.vy * cos_angle;
-        
+
         target.vx = rotated_vx;
         target.vy = rotated_vy;
-        
+
         // Interceptor steers directly towards target
         let (mut dir_x, mut dir_y) = calculate_steering_direction_pn(&interceptor, &target);
-        
+
         // Normalize direction vector
         let dir_magnitude = (dir_x * dir_x + dir_y * dir_y).sqrt();
         if dir_magnitude > 0.0 {
             dir_x /= dir_magnitude;
             dir_y /= dir_magnitude;
         }
-        
+
         interceptor.vx = dir_x * interceptor_speed;
         interceptor.vy = dir_y * interceptor_speed;
 
@@ -239,7 +234,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Store positions (both X and Y coordinates)
         target_positions.push((target.x, target.y));
         interceptor_positions.push((interceptor.x, interceptor.y));
-        
+
     }
 
     // Print collision results after simulation ends
@@ -263,8 +258,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-
 
 fn visualize_simulation(
     target_positions: &[(f64, f64)],
@@ -335,14 +328,13 @@ fn visualize_simulation(
     // Draw blue circle at the last position of interceptor
     if let Some(&last_interceptor_pos) = interceptor_positions.last() {
         let (collision_x, collision_y) = last_interceptor_pos;
-        
+
         chart.draw_series(std::iter::once(Circle::new(
             (collision_x, collision_y),
             25,
             ShapeStyle::from(&BLUE).stroke_width(3),
         )))?;
     }
-
 
     // Configure axes
     chart
