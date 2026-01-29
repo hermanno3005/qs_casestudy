@@ -32,12 +32,77 @@ pub type Interceptor = Target;
 
 // Calculate steering direction towards target (unit vector)
 fn calculate_steering_direction(from: &Interceptor, to: &Target) -> (f64, f64) {
+    // --- LOS direction
     let dx = to.x - from.x;
     let dy = to.y - from.y;
     let distance = (dx * dx + dy * dy).sqrt();
-    
-    (dx / distance, dy / distance)
 
+    // Normalize for steering
+    let los_x = dx / distance;
+    let los_y = dy / distance;
+
+    // Perpendicular (normal) vector to LOS
+    // This introduces a lateral offset -> collision angle
+    let los_x_norm = los_y;
+    let los_y_norm = -los_x;
+
+    // Fixed offset strength (tune between 0.2 - 0.4)
+    let offset_gain = 0.4;
+
+    // Target velocity
+    let vx_t = to.vx;
+    let vy_t = to.vy;
+
+    // Interceptor speed taken from its current velocity magnitude
+    //let v_i = (from.vx * from.vx + from.vy * from.vy).sqrt();
+    let v_i: f64 = (from.vx * from.vx + from.vy * from.vy).sqrt();
+
+    //Quadratic coefficients: At^2 + Bt + C = 0
+    let a: f64 = vx_t.powi(2) + vy_t.powi(2) - v_i.powi(2);
+    let b = 2.0 * (dx * vx_t + dy * vy_t);
+    let c = dx.powi(2) + dy.powi(2); 
+
+    // Quadratic Formula
+    let t_1 = ((-b) + (b.powi(2) - 4.0 * a * c).sqrt()) / (2.0 * a);
+    let t_2 = ((-b) - (b.powi(2) - 4.0 * a * c).sqrt()) / (2.0 * a);
+
+    // Choose smallest positive t
+    let t_coll = match [t_1, t_2]
+    .into_iter()
+    .filter(|&t| t.is_finite() && t > 0.0)
+    .min_by(|a, b| a.partial_cmp(b).unwrap()) 
+    {
+    Some(t) => t,
+    None => {
+        // No valid interception time → fall back to LOS guidance
+        return (los_x, los_y);
+    }
+    };
+
+    // Calculate Collision
+    let lead_x = to.x + vx_t * t_coll;
+    let lead_y = to.y + vy_t * t_coll;
+
+    let lead_dx = lead_x - from.x;
+    let lead_dy = lead_y - from.y;
+    let lead_mag = (lead_dx * lead_dx + lead_dy * lead_dy).sqrt();
+
+    let lead_dir_x = lead_dx / lead_mag;
+    let lead_dir_y = lead_dy / lead_mag;
+
+    // --- Blend lead and LOS
+    let lambda = (distance / 1.5).clamp(0.0, 1.0);
+
+    let dir_x = (1.0 - lambda) * los_x + lambda * lead_dir_x + offset_gain * los_x_norm;
+    let dir_y = (1.0 - lambda) * los_y + lambda * lead_dir_y + offset_gain + los_y_norm;
+
+    // Normalize blended vector
+    let mag = (dir_x * dir_x + dir_y * dir_y).sqrt();
+    if mag > 1e-6 {
+        (dir_x / mag, dir_y / mag)
+    } else {
+        (los_x, los_y)
+    }
 }
 
 // Calculate angle between two velocity vectors in degrees
